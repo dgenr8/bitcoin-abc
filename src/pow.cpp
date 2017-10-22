@@ -10,6 +10,8 @@
 #include "primitives/block.h"
 #include "uint256.h"
 
+#include <deque>
+
 /**
  * Compute the next required proof of work using the legacy Bitcoin difficulty
  * adjustement + Emergency Difficulty Adjustement (EDA).
@@ -150,15 +152,14 @@ bool CheckProofOfWork(uint256 hash, uint32_t nBits,
     return true;
 }
 
-static std::vector<const CBlockIndex*> BlocksInRange(
+static std::deque<const CBlockIndex*> BlocksInRange(
         const CBlockIndex *pindexFirst,
         const CBlockIndex *pindexLast)
 {
-  std::vector<const CBlockIndex*> blocks;
-  for (const CBlockIndex* i = pindexFirst; i != pindexLast; i = i->pprev) {
-    blocks.push_back(i);
+  std::deque<const CBlockIndex*> blocks;
+  for (const CBlockIndex* i = pindexLast; i != pindexFirst; i = i->pprev) {
+    blocks.push_front(i);
   }
-  std::reverse(begin(blocks), end(blocks));
   return blocks;
 }
 
@@ -170,7 +171,7 @@ static arith_uint256 ComputeTarget(const CBlockIndex *pindexFirst,
 				                   const CBlockIndex *pindexLast)
 {
   assert(pindexLast->nHeight > pindexFirst->nHeight);
-  std::vector<const CBlockIndex*> blocks = BlocksInRange(pindexFirst, pindexLast);
+  std::deque<const CBlockIndex*> blocks = BlocksInRange(pindexFirst, pindexLast);
 
   // last_target = bits_to_target(states[last].bits)
   arith_uint256 last_target;
@@ -178,12 +179,11 @@ static arith_uint256 ComputeTarget(const CBlockIndex *pindexFirst,
 
   // timespan = 0
   // prior_timestamp = states[first].timestamp
-  uint64_t timespan = 0;
+  uint32_t timespan = 0;
   uint32_t prior_timestamp = pindexFirst->nTime;
 
-
   // for i in range(first + 1, last + 1):
-  for (auto i = begin(blocks) + 1; i != end(blocks); ++i) {
+  for (auto i = begin(blocks); i != end(blocks); ++i) {
     // target_i = bits_to_target(states[i].bits)
     arith_uint256 target_i;
     target_i.SetCompact((*i)->nBits);
@@ -202,8 +202,8 @@ static arith_uint256 ComputeTarget(const CBlockIndex *pindexFirst,
     uint32_t adj_time_i = time_i * (target_i / last_target).GetLow64();
 
     // Recency weight
-    // timespan += adj_time_i * (i - first) # Recency weight
-    timespan += adj_time_i * std::distance(begin(blocks), i);
+    // timespan += adj_time_i * i # Recency weight
+    timespan += adj_time_i * (std::distance(begin(blocks), i) + 1);
   }
 
   int block_count = blocks.size();
@@ -216,7 +216,7 @@ static arith_uint256 ComputeTarget(const CBlockIndex *pindexFirst,
   // target //= 600 * block_count
   arith_uint256 target = last_target * timespan;
   target /= 600 * block_count;
-  return target.GetCompact();
+  return target;
 }
 
 /**
