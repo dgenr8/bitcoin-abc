@@ -630,9 +630,7 @@ bool IsMonolithEnabled(const Config &config, const CBlockIndex *pindexPrev) {
 static bool IsReplayProtectionEnabled(const Config &config,
                                       int64_t nMedianTimePast) {
     return nMedianTimePast >= gArgs.GetArg("-replayprotectionactivationtime",
-                                           config.GetChainParams()
-                                               .GetConsensus()
-                                               .magneticAnomalyActivationTime);
+                                           2000000000);
 }
 
 static bool IsReplayProtectionEnabled(const Config &config,
