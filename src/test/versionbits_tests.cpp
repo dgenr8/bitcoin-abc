@@ -24,18 +24,14 @@ private:
     mutable ThresholdConditionCache cache;
 
 public:
-    int64_t BeginTime(const Consensus::Params &params) const override {
-        return TestTime(10000);
-    }
-    int64_t EndTime(const Consensus::Params &params) const override {
-        return TestTime(20000);
-    }
-    int Period(const Consensus::Params &params) const override { return 1000; }
-    int Threshold(const Consensus::Params &params) const override {
-        return 900;
-    }
-    bool Condition(const CBlockIndex *pindex,
-                   const Consensus::Params &params) const override {
+    int64_t BeginTime(const Consensus::Params &params) const { return TestTime(10000); }
+    int64_t EndTime(const Consensus::Params &params) const { return TestTime(20000); }
+    int Period(const Consensus::Params &params) const { return 1000; }
+    int Threshold(const Consensus::Params &params) const { return 900; }
+    int MinLockedBlocks(const Consensus::Params &params) const { return 0; }
+    int64_t MinLockedTime(const Consensus::Params &params) const { return 0; }
+    bool Condition(const CBlockIndex *pindex, const Consensus::Params &params) const
+    {
         return (pindex->nVersion & 0x100);
     }
 
@@ -363,26 +359,32 @@ BOOST_AUTO_TEST_CASE(versionbits_test) {
     // Sanity checks of version bit deployments
     const auto chainParams = CreateChainParams(CBaseChainParams::MAIN);
     const Consensus::Params &mainnetParams = chainParams->GetConsensus();
-    for (int i = 0; i < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; i++) {
-        uint32_t bitmask =
-            VersionBitsMask(mainnetParams, (Consensus::DeploymentPos)i);
+    for (int i=0; i<(int) Consensus::MAX_VERSION_BITS_DEPLOYMENTS; i++) {
+        Consensus::DeploymentPos bit_i = static_cast<Consensus::DeploymentPos>(i);
+        if (!IsConfiguredDeployment(mainnetParams, bit_i)) {
+            continue;
+        }
+        uint32_t bitmask = VersionBitsMask(mainnetParams, bit_i);
         // Make sure that no deployment tries to set an invalid bit.
         BOOST_CHECK_EQUAL(bitmask & ~(uint32_t)VERSIONBITS_TOP_MASK, bitmask);
 
         // Verify that the deployment windows of different deployment using the
-        // same bit are disjoint. This test may need modification at such time
-        // as a new deployment is proposed that reuses the bit of an activated
-        // soft fork, before the end time of that soft fork.  (Alternatively,
-        // the end time of that activated soft fork could be later changed to be
-        // earlier to avoid overlap.)
-        for (int j = i + 1; j < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS;
-             j++) {
-            if (VersionBitsMask(mainnetParams, (Consensus::DeploymentPos)j) ==
-                bitmask) {
-                BOOST_CHECK(mainnetParams.vDeployments[j].nStartTime >
-                                mainnetParams.vDeployments[i].nTimeout ||
-                            mainnetParams.vDeployments[i].nStartTime >
-                                mainnetParams.vDeployments[j].nTimeout);
+        // same bit are disjoint.
+        // This test may need modification at such time as a new deployment
+        // is proposed that reuses the bit of an activated soft fork, before the
+        // end time of that soft fork.  (Alternatively, the end time of that
+        // activated soft fork could be later changed to be earlier to avoid
+        // overlap.)
+        BOOST_CHECK(mainnetParams.vDeployments.at(bit_i).nStartTime <= mainnetParams.vDeployments.at(bit_i).nTimeout);
+        for (int j=0; j<(int) Consensus::MAX_VERSION_BITS_DEPLOYMENTS; j++) {
+            Consensus::DeploymentPos bit_j = static_cast<Consensus::DeploymentPos>(j);
+            // only check a bit for disjointness if it is in use
+            if (i != j && IsConfiguredDeployment(mainnetParams, bit_j) && VersionBitsMask(mainnetParams, bit_j) == bitmask) {
+                BOOST_CHECK(mainnetParams.vDeployments.at(bit_j).nStartTime <= mainnetParams.vDeployments.at(bit_j).nTimeout);
+                BOOST_CHECK((mainnetParams.vDeployments.at(bit_i).nStartTime < mainnetParams.vDeployments.at(bit_j).nStartTime &&
+                                mainnetParams.vDeployments.at(bit_i).nTimeout < mainnetParams.vDeployments.at(bit_j).nTimeout)
+                            || (mainnetParams.vDeployments.at(bit_j).nStartTime < mainnetParams.vDeployments.at(bit_i).nStartTime &&
+                                mainnetParams.vDeployments.at(bit_j).nTimeout < mainnetParams.vDeployments.at(bit_i).nTimeout));
             }
         }
     }
@@ -395,12 +397,9 @@ BOOST_AUTO_TEST_CASE(versionbits_computeblockversion) {
     const Consensus::Params &mainnetParams = chainParams->GetConsensus();
 
     // Use the TESTDUMMY deployment for testing purposes.
-    int64_t bit =
-        mainnetParams.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit;
-    int64_t nStartTime =
-        mainnetParams.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime;
-    int64_t nTimeout =
-        mainnetParams.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout;
+    int64_t bit = Consensus::DEPLOYMENT_TESTDUMMY;
+    int64_t nStartTime = mainnetParams.vDeployments.at(Consensus::DEPLOYMENT_TESTDUMMY).nStartTime;
+    int64_t nTimeout = mainnetParams.vDeployments.at(Consensus::DEPLOYMENT_TESTDUMMY).nTimeout;
 
     assert(nStartTime < nTimeout);
 
